@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JR\Tracker\Service\Implementation;
 
 use JR\Tracker\Config;
+use JR\Tracker\Entity\User\Contract\UserInterface;
 use JR\Tracker\Entity\User\Implementation\UserVerifyEmail;
 use JR\Tracker\Enum\HttpStatusCode;
 use JR\Tracker\Exception\VerificationException;
@@ -25,18 +26,13 @@ class VerifyEmailService implements VerifyEmailServiceInterface
 
     public function attemptVerify(string $token): void
     {
-        $verificationToken = $this->verifyVerificationToken($token);
+        $verificationToken = $this->verifyToken($token);
         $this->verifyEmail($verificationToken);
     }
 
-    public function createVerificationLink(string $email, int $expiresHours): ?string
+    private function createVerificationLink(UserInterface $user, int $expiresHours): ?string
     {
-        $user = $this->userRepository->getByEmail($email);
-
-        if (!isset($user)) {
-            return null;
-        }
-
+        $email = $user->getEmail();
         $verificationToken = $this->verifyEmailRepository->getActiveTokenByEmail($email);
 
         if (isset($verificationToken)) {
@@ -57,15 +53,18 @@ class VerifyEmailService implements VerifyEmailServiceInterface
         }
 
         $baseUrl = preg_replace('/\/$/', '', $this->config->get('client_app_url'));
+        $verifyEmailCallbackUrl = $this->config->get('verify_email_callback_url');
 
-        return (string) $baseUrl . '/overeni-emailu/' . $verificationToken->getToken();
+        return (string) $baseUrl . $verifyEmailCallbackUrl . $verificationToken->getToken();
     }
 
     public function attemptResend(string $email): void
     {
         $user = $this->userRepository->getByEmail($email);
 
-        if (!isset($user)) {
+        if (!isset($user) || $user->getEmailVerifiedAt() !== null) {
+            // Dummy call
+            password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT, ['cost' => 4]);
             return;
         }
 
@@ -73,7 +72,7 @@ class VerifyEmailService implements VerifyEmailServiceInterface
     }
 
     #REGION Private methods
-    private function verifyVerificationToken(string $token): UserVerifyEmail
+    private function verifyToken(string $token): UserVerifyEmail
     {
         $verificationToken = $this->userRepository->getVerificationToken($token);
 
